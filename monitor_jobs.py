@@ -327,7 +327,7 @@ def run() -> None:
 
 
 if __name__ == "__main__":
-    run()               lines.append(f"- {item['portal']}: {item['title']}\n  {item['url']}")
+    run()               
 
     if failed_portals:
         lines.append("\n[PORTAL WARNINGS]")
