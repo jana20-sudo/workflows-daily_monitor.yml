@@ -88,17 +88,17 @@ GENERAL_ELIGIBLE_KEYWORDS = [
 ]
 
 
-def fetch_html(url: str, retries: int = 3) -> str:
+def fetch_html(url: str, retries: int = 2) -> str:
     """Fetch page HTML with retries and SSL fallback for legacy .gov.in certs."""
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=25)
+            resp = requests.get(url, headers=HEADERS, timeout=15)
             resp.raise_for_status()
             return resp.text
         except requests.exceptions.SSLError:
             try:
-                resp = requests.get(url, headers=HEADERS, timeout=25, verify=False)
+                resp = requests.get(url, headers=HEADERS, timeout=15, verify=False)
                 resp.raise_for_status()
                 return resp.text
             except Exception as exc:
@@ -179,7 +179,7 @@ def save_seen(seen: Dict[str, dict]) -> None:
 
 
 def send_telegram_message(token: str, chat_id: str, text: str) -> None:
-    """Send a Telegram message with retries, splitting cleanly if over 4000 chars."""
+    """Send a Telegram message with automatic 429 retry_after handling."""
     api_url = f"https://api.telegram.org/bot{token}/sendMessage"
     chunks: List[str] = []
     while len(text) > 4000:
@@ -191,7 +191,7 @@ def send_telegram_message(token: str, chat_id: str, text: str) -> None:
     chunks.append(text)
 
     for chunk in chunks:
-        for attempt in range(1, 4):
+        for attempt in range(1, 6):
             try:
                 resp = requests.post(
                     api_url,
@@ -202,12 +202,30 @@ def send_telegram_message(token: str, chat_id: str, text: str) -> None:
                     },
                     timeout=45,
                 )
-                resp.raise_for_status()
+                if resp.status_code == 429:
+                    retry_after = 15
+                    try:
+                        data = resp.json()
+                        retry_after = int(data.get("parameters", {}).get("retry_after", 15))
+                    except Exception:
+                        pass
+                    wait_sec = min(max(retry_after + 2, 5), 65)
+                    print(f"Telegram 429 rate limit (attempt {attempt}/5). Body: {resp.text}. Waiting {wait_sec}s...")
+                    time.sleep(wait_sec)
+                    continue
+                if not resp.ok:
+                    print(f"Telegram API error {resp.status_code}: {resp.text}")
+                    resp.raise_for_status()
+                print("Telegram message sent successfully.")
                 break
-            except Exception:
-                if attempt == 3:
+            except Exception as exc:
+                if attempt == 5:
                     raise
-                time.sleep(3 * attempt)
+                wait_sec = 5 * attempt
+                print(f"Telegram send error (attempt {attempt}/5): {exc}. Retrying in {wait_sec}s...")
+                time.sleep(wait_sec)
+        else:
+            raise RuntimeError("Failed to send Telegram message after 5 attempts due to rate limiting (429).")
 
 
 def run() -> None:
@@ -274,7 +292,9 @@ def run() -> None:
         for name, err in failed_portals:
             lines.append(f"- {name}: {err[:120]}")
 
-    send_telegram_message(token, chat_id, "\n".join(lines))
+    digest = "\n".join(lines)
+    print(digest)
+    send_telegram_message(token, chat_id, digest)
 
 
 if __name__ == "__main__":
