@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Job Secretary" />
+  <title>Food Tech &amp; Global Job Secretary</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen pb-24">
+  <!-- Top Header -->
+  <header class="bg-slate-900 text-white sticky top-0 z-30 shadow-md">
+    <div class="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between gap-2">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-500 text-slate-950 font-bold text-sm shrink-0">JT</span>
+          <h1 class="text-base sm:text-lg font-bold tracking-tight truncate">Food Tech &amp; Govt Job Secretary</h1>
+        </div>
+        <p id="syncStatusText" class="text-xs text-slate-300 mt-0.5 truncate">19 official Indian &amp; international portals loaded</p>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button id="openAddBtn" type="button" class="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-semibold transition">
+          + Add Job
+        </button>
+        <button id="openSyncBtn" type="button" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-xs font-medium transition">
+          Sync JSON
+        </button>
+        <button id="openInstallBtn" type="button" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-xs font-medium transition">
+          Phone App
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-4xl mx-auto px-4 pt-4 space-y-4">
+    <!-- Pipeline KPI Strip -->
+    <section class="grid grid-cols-2 sm:grid-cols-4 gap-2.5" aria-label="Tracker summary">
+      <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+        <div class="text-xs font-medium text-slate-500">Tracked Items</div>
+        <div id="statTotal" class="text-2xl font-bold text-slate-900 mt-0.5">0</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+        <div class="text-xs font-medium text-slate-500">Saved</div>
+        <div id="statSaved" class="text-2xl font-bold text-indigo-600 mt-0.5">0</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+        <div class="text-xs font-medium text-slate-500">Applied</div>
+        <div id="statApplied" class="text-2xl font-bold text-emerald-600 mt-0.5">0</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+        <div class="text-xs font-medium text-slate-500">Deadlines Set</div>
+        <div id="statDeadlines" class="text-2xl font-bold text-amber-600 mt-0.5">0</div>
+      </div>
+    </section>
+
+    <!-- Search & Filter Bar -->
+    <section class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm space-y-3">
+      <div class="flex flex-col sm:flex-row gap-2.5">
+        <div class="relative flex-1">
+          <input
+            id="searchInput"
+            type="search"
+            placeholder="Search FSSAI, FAO, EFSA, CWC, RRB, trainee, intern..."
+            class="w-full pl-3.5 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+          />
+        </div>
+        <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-xs sm:text-sm font-medium text-slate-700 cursor-pointer select-none shrink-0">
+          <input id="fresherOnlyToggle" type="checkbox" class="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4" />
+          <span>Fresher / Pre-Degree Friendly</span>
+        </label>
+      </div>
+
+      <!-- Category Tabs -->
+      <div id="categoryTabs" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5" role="tablist">
+        <button type="button" data-tab="All" class="tab-btn px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition">All</button>
+        <button type="button" data-tab="India Food Tech" class="tab-btn px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition">India Food Tech</button>
+        <button type="button" data-tab="International" class="tab-btn px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition">International</button>
+        <button type="button" data-tab="Govt &amp; RRB" class="tab-btn px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition">Govt &amp; RRB</button>
+        <button type="button" data-tab="My Pipeline" class="tab-btn px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition">My Pipeline</button>
+      </div>
+    </section>
+
+    <!-- Results Count -->
+    <div class="flex items-center justify-between text-xs text-slate-500 px-1">
+      <span id="resultsCount">Showing 0 items</span>
+      <button id="resetFiltersBtn" type="button" class="text-emerald-700 font-medium hover:underline hidden">Reset filters</button>
+    </div>
+
+    <!-- Cards Container -->
+    <section id="cardsGrid" class="space-y-3" aria-live="polite"></section>
+  </main>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-xs sm:text-sm font-medium px-4 py-2.5 rounded-full shadow-lg opacity-0 pointer-events-none transition-opacity duration-200"></div>
+
+  <!-- Add Custom Job Modal -->
+  <div id="addModal" class="fixed inset-0 z-40 bg-slate-900/60 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-bold text-slate-900">Add Job / Notification</h2>
+        <button type="button" data-close="addModal" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">&times;</button>
+      </div>
+      <form id="addJobForm" class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1" for="newPortal">Organization</label>
+          <input id="newPortal" required type="text" placeholder="e.g. FAO, Nestlé, FSSAI, CWC" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1" for="newTitle">Role / Notification Title</label>
+          <input id="newTitle" required type="text" placeholder="e.g. Junior Food Safety Analyst / Intern" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg" />
+        </div>
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1" for="newCategory">Category</label>
+            <select id="newCategory" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white">
+              <option value="India Food Tech">India Food Tech</option>
+              <option value="International">International</option>
+              <option value="Govt &amp; RRB">Govt &amp; RRB</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1" for="newDeadline">Deadline (Optional)</label>
+            <input id="newDeadline" type="date" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1" for="newUrl">Official Apply Link (https://...)</label>
+          <input id="newUrl" required type="url" placeholder="https://..." class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg" />
+        </div>
+        <label class="inline-flex items-center gap-2 text-xs font-medium text-slate-700">
+          <input id="newFresher" type="checkbox" class="rounded w-4 h-4 text-emerald-600" />
+          <span>Open to freshers / students / pre-degree</span>
+        </label>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" data-close="addModal" class="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Save Job</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Deadline Reminder Modal -->
+  <div id="reminderModal" class="fixed inset-0 z-40 bg-slate-900/60 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-bold text-slate-900">Set Application Reminder</h2>
+        <button type="button" data-close="reminderModal" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">&times;</button>
+      </div>
+      <p id="reminderJobLabel" class="text-xs text-slate-600 font-medium"></p>
+      <form id="reminderForm" class="space-y-3">
+        <input id="reminderJobId" type="hidden" />
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1" for="reminderDate">Last Date to Apply</label>
+          <input id="reminderDate" required type="date" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1" for="reminderNote">Checklist / Note (Optional)</label>
+          <input id="reminderNote" type="text" placeholder="e.g. Check degree cutoff, prepare CV &amp; transcripts" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg" />
+        </div>
+        <div class="flex items-center justify-between pt-2">
+          <button id="clearReminderBtn" type="button" class="text-xs font-semibold text-rose-600 hover:underline">Clear Reminder</button>
+          <div class="flex gap-2">
+            <button type="button" data-close="reminderModal" class="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200">Cancel</button>
+            <button type="submit" class="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700">Save Reminder</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Sync seen_jobs.json Modal -->
+  <div id="syncModal" class="fixed inset-0 z-40 bg-slate-900/60 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-bold text-slate-900">Sync with GitHub <code>seen_jobs.json</code></h2>
+        <button type="button" data-close="syncModal" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">&times;</button>
+      </div>
+      <p class="text-xs text-slate-600 leading-relaxed">
+        When hosted on GitHub Pages in the same repo as your monitor, tap <strong>Fetch Live File</strong> to pull every newly discovered link automatically. You can also import or paste <code>seen_jobs.json</code> here anytime.
+      </p>
+      <div class="space-y-3">
+        <button id="fetchLiveJsonBtn" type="button" class="w-full py-2.5 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition">
+          Fetch Live ./seen_jobs.json
+        </button>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1" for="jsonFileInput">Or Upload seen_jobs.json File</label>
+          <input id="jsonFileInput" type="file" accept=".json,application/json" class="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-slate-100 file:text-slate-700 file:font-semibold" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1" for="jsonPasteInput">Or Paste JSON Contents</label>
+          <textarea id="jsonPasteInput" rows="4" placeholder='{"id1": {"portal": "FSSAI", "title": "...", "url": "https://..."}}' class="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg"></textarea>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button type="button" data-close="syncModal" class="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200">Close</button>
+          <button id="importPastedJsonBtn" type="button" class="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Import Pasted JSON</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Install on Phone Guide Modal -->
+  <div id="installModal" class="fixed inset-0 z-40 bg-slate-900/60 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl space-y-3.5">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-bold text-slate-900">Install as an Android Phone App</h2>
+        <button type="button" data-close="installModal" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">&times;</button>
+      </div>
+      <ol class="list-decimal list-inside space-y-2 text-xs text-slate-700 leading-relaxed">
+        <li>Add this <code>index.html</code> file to your GitHub repository root (next to <code>monitor_jobs.py</code> and <code>seen_jobs.json</code>).</li>
+        <li>In GitHub, open <strong>Settings &gt; Pages</strong>, set Source to <strong>Deploy from a branch</strong>, pick <strong>main</strong> / <strong>/(root)</strong>, and tap <strong>Save</strong>.</li>
+        <li>Open your live <code>https://&lt;username&gt;.github.io/&lt;repo&gt;/</code> link in Chrome on Android, tap the <strong>three dots (⋮)</strong>, and choose <strong>Add to Home screen</strong>.</li>
+      </ol>
+      <p class="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+        Tip: GitHub Pages works on public repos on the free plan. Keep your Gmail credentials safely inside <strong>GitHub Secrets</strong>—never inside any file.
+      </p>
+      <div class="flex justify-end">
+        <button type="button" data-close="installModal" class="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'foodtech_job_secretary_v1';
+
+    const SEED_ITEMS = [
+      {
+        id: 'seed_fssai',
+        portal: 'FSSAI',
+        title: 'Food Safety & Standards Authority of India — Jobs & Technical Officer Portal',
+        category: 'India Food Tech',
+        url: 'https://www.fssai.gov.in/jobs-at-fssai',
+        fresherFriendly: false,
+        note: 'Technical Officer, Central Food Safety Officer & QA roles (degree required).'
+      },
+      {
+        id: 'seed_cwc',
+        portal: 'Central Warehousing Corp (CWC)',
+        title: 'CWC Career Portal — Technical Assistant & Management Trainee',
+        category: 'India Food Tech',
+        url: 'https://cwceportal.com/careers',
+        fresherFriendly: false,
+        note: 'Navratna PSU; degree certificate required by cutoff date.'
+      },
+      {
+        id: 'seed_fci',
+        portal: 'Food Corporation of India (FCI)',
+        title: 'FCI Official Recruitment Portal — Category II & III Technical / General',
+        category: 'India Food Tech',
+        url: 'https://fci.gov.in/',
+        fresherFriendly: false,
+        note: 'Major PSU technical & general graduate recruitments.'
+      },
+      {
+        id: 'seed_bis',
+        portal: 'Bureau of Indian Standards (BIS)',
+        title: 'BIS Official Portal — Scientist-B (Food Tech via GATE) & Standards Roles',
+        category: 'India Food Tech',
+        url: 'https://www.bis.gov.in/',
+        fresherFriendly: false,
+        note: 'High-salary Scientist-B & technical posts under Ministry of Consumer Affairs.'
+      },
+      {
+        id: 'seed_cftri_reg',
+        portal: 'CSIR-CFTRI (Mysuru)',
+        title: 'CSIR-CFTRI Regular Positions — Technician & Scientific Staff',
+        category: 'India Food Tech',
+        url: 'https://cftri.res.in/recruitments/regular-positions',
+        fresherFriendly: true,
+        note: 'Includes Technician & lab roles alongside senior research posts.'
+      },
+      {
+        id: 'seed_cftri_proj',
+        portal: 'CSIR-CFTRI (Mysuru)',
+        title: 'CSIR-CFTRI Project Positions — Project Associate & Research Staff',
+        category: 'India Food Tech',
+        url: 'https://cftri.res.in/recruitments/project-positions',
+        fresherFriendly: true,
+        note: 'Frequent project openings for fresh Food Technology graduates.'
+      },
+      {
+        id: 'seed_teaboard',
+        portal: 'Tea Board of India',
+        title: 'Tea Board of India — Quality Control Lab & Management Trainee Notices',
+        category: 'India Food Tech',
+        url: 'https://www.teaboard.gov.in/',
+        fresherFriendly: true,
+        note: 'Statutory board under Ministry of Commerce; posts trainee & lab roles.'
+      },
+      {
+        id: 'seed_coffeeboard',
+        portal: 'Coffee Board of India',
+        title: 'Coffee Board of India — News, Notifications & Recruitment Notices',
+        category: 'India Food Tech',
+        url: 'https://coffeeboard.gov.in/News.aspx',
+        fresherFriendly: true,
+        note: 'Posts technical, research, and extension vacancies directly under News.'
+      },
+      {
+        id: 'seed_spicesboard',
+        portal: 'Spices Board India',
+        title: 'Spices Board India — Trainee Analyst & Quality Evaluation Labs',
+        category: 'India Food Tech',
+        url: 'https://www.indianspices.com/',
+        fresherFriendly: true,
+        note: 'Regular Trainee Analyst walk-ins & lab roles across India.'
+      },
+      {
+        id: 'seed_apeda',
+        portal: 'APEDA',
+        title: 'Agricultural & Processed Food Products Export Development Authority',
+        category: 'India Food Tech',
+        url: 'https://apeda.gov.in/',
+        fresherFriendly: false,
+        note: 'Export development, food quality & business development engagements.'
+      },
+      {
+        id: 'seed_ssc',
+        portal: 'Staff Selection Commission (SSC)',
+        title: 'SSC Official Notice Board — CHSL (10+2), CGL (Degree) & Selection Posts',
+        category: 'Govt & RRB',
+        url: 'https://ssc.gov.in/home/notice-board',
+        fresherFriendly: true,
+        note: 'CHSL is open before degree completion; CGL accepts final-year before cutoff.'
+      },
+      {
+        id: 'seed_rrb_chennai',
+        portal: 'RRB Chennai',
+        title: 'Railway Recruitment Board Chennai — NTPC (UG & Graduate) & Technical',
+        category: 'Govt & RRB',
+        url: 'https://www.rrbchennai.gov.in/',
+        fresherFriendly: true,
+        note: 'NTPC Undergraduate posts accept 10+2 while you complete your degree.'
+      },
+      {
+        id: 'seed_fao_home',
+        portal: 'FAO (United Nations)',
+        title: 'Employment at FAO — Global Food & Agriculture Vacancies',
+        category: 'Inter
