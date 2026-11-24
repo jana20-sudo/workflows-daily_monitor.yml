@@ -1,8 +1,11 @@
 import hashlib
+import html as html_lib
 import json
 import os
+import smtplib
 import time
 from datetime import datetime, timezone, timedelta
+from email.message import EmailMessage
 from pathlib import Path
 from typing import Dict, List, Tuple
 from urllib.parse import urljoin
@@ -115,8 +118,6 @@ def classify_title(title: str) -> str:
     is_food = any(kw in lower for kw in FOOD_TECH_KEYWORDS)
     is_job = any(kw in lower for kw in GENERAL_ELIGIBLE_KEYWORDS)
 
-    if is_food and is_job:
-        return "FOOD_TECH"
     if is_food:
         return "FOOD_TECH"
     if is_job:
@@ -124,9 +125,9 @@ def classify_title(title: str) -> str:
     return ""
 
 
-def extract_postings(portal: Dict[str, str], html: str) -> List[Dict[str, str]]:
+def extract_postings(portal: Dict[str, str], page_html: str) -> List[Dict[str, str]]:
     """Extract relevant job/notice links from a portal's HTML."""
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(page_html, "html.parser")
     results: List[Dict[str, str]] = []
     seen_urls = set()
 
@@ -178,65 +179,87 @@ def save_seen(seen: Dict[str, dict]) -> None:
     STATE_FILE.write_text(json.dumps(seen, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def send_telegram_message(token: str, chat_id: str, text: str) -> None:
-    """Send a Telegram message with automatic 429 retry_after handling."""
-    api_url = f"https://api.telegram.org/bot{token}/sendMessage"
-    chunks: List[str] = []
-    while len(text) > 4000:
-        split_idx = text.rfind("\n", 0, 4000)
-        if split_idx == -1:
-            split_idx = 4000
-        chunks.append(text[:split_idx])
-        text = text[split_idx:].lstrip()
-    chunks.append(text)
+def build_html_body(
+    now_ist: str,
+    ok_count: int,
+    total_portals: int,
+    first_run: bool,
+    total_seen: int,
+    new_food_tech: List[Dict[str, str]],
+    new_general: List[Dict[str, str]],
+    failed_portals: List[Tuple[str, str]],
+) -> str:
+    parts = [
+        "<div style='font-family: Arial, sans-serif; color: #222; line-height: 1.5;'>",
+        f"<h2 style='margin-bottom: 4px;'>Govt &amp; PSU Job Monitor</h2>",
+        f"<p style='color: #555; margin-top: 0;'>{html_lib.escape(now_ist)} &middot; Checked {ok_count}/{total_portals} portals</p>",
+    ]
 
-    for chunk in chunks:
-        for attempt in range(1, 6):
-            try:
-                resp = requests.post(
-                    api_url,
-                    json={
-                        "chat_id": chat_id,
-                        "text": chunk,
-                        "disable_web_page_preview": True,
-                    },
-                    timeout=45,
-                )
-                if resp.status_code == 429:
-                    retry_after = 15
-                    try:
-                        data = resp.json()
-                        retry_after = int(data.get("parameters", {}).get("retry_after", 15))
-                    except Exception:
-                        pass
-                    wait_sec = min(max(retry_after + 2, 5), 65)
-                    print(f"Telegram 429 rate limit (attempt {attempt}/5). Body: {resp.text}. Waiting {wait_sec}s...")
-                    time.sleep(wait_sec)
-                    continue
-                if not resp.ok:
-                    print(f"Telegram API error {resp.status_code}: {resp.text}")
-                    resp.raise_for_status()
-                print("Telegram message sent successfully.")
-                break
-            except Exception as exc:
-                if attempt == 5:
-                    raise
-                wait_sec = 5 * attempt
-                print(f"Telegram send error (attempt {attempt}/5): {exc}. Retrying in {wait_sec}s...")
-                time.sleep(wait_sec)
-        else:
-            raise RuntimeError("Failed to send Telegram message after 5 attempts due to rate limiting (429).")
+    if first_run:
+        parts.append(
+            f"<p><strong>Baseline initialized</strong> with {total_seen} existing links. "
+            "Starting tomorrow at 8:00 AM IST, you will receive an email whenever new postings appear.</p>"
+        )
+    elif not new_food_tech and not new_general:
+        parts.append("<p>No new postings today. Your monitor is active and healthy.</p>")
+    else:
+        if new_food_tech:
+            parts.append(f"<h3 style='color: #0b5394;'>Food Tech &amp; Allied ({len(new_food_tech)} new)</h3><ul>")
+            for item in new_food_tech[:40]:
+                portal = html_lib.escape(item["portal"])
+                title = html_lib.escape(item["title"])
+                url = html_lib.escape(item["url"], quote=True)
+                parts.append(f"<li><strong>{portal}:</strong> <a href='{url}'>{title}</a></li>")
+            parts.append("</ul>")
+
+        if new_general:
+            parts.append(f"<h3 style='color: #38761d;'>General Govt / Degree / Trainee ({len(new_general)} new)</h3><ul>")
+            for item in new_general[:40]:
+                portal = html_lib.escape(item["portal"])
+                title = html_lib.escape(item["title"])
+                url = html_lib.escape(item["url"], quote=True)
+                parts.append(f"<li><strong>{portal}:</strong> <a href='{url}'>{title}</a></li>")
+            parts.append("</ul>")
+
+    if failed_portals:
+        parts.append("<h3 style='color: #b45f06;'>Portal Warnings</h3><ul>")
+        for name, err in failed_portals:
+            parts.append(f"<li><strong>{html_lib.escape(name)}:</strong> {html_lib.escape(err[:150])}</li>")
+        parts.append("</ul>")
+
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def send_gmail(sender: str, app_password: str, recipient: str, subject: str, text_body: str, html_body: str) -> None:
+    """Send multipart plain-text + HTML email via Gmail SMTP_SSL."""
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = recipient
+    msg["Subject"] = subject
+    msg.set_content(text_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    clean_password = app_password.replace(" ", "").strip()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+        server.login(sender, clean_password)
+        server.send_message(msg)
+    print(f"Email sent successfully to {recipient}.")
 
 
 def run() -> None:
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-    if not token or not chat_id:
-        raise EnvironmentError("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID environment variables.")
+    gmail_address = os.environ.get("GMAIL_ADDRESS", "").strip()
+    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    recipient_email = os.environ.get("RECIPIENT_EMAIL", "").strip() or gmail_address
+
+    if not gmail_address or not gmail_app_password:
+        raise EnvironmentError("Missing GMAIL_ADDRESS or GMAIL_APP_PASSWORD environment variables.")
 
     seen = load_seen()
     first_run = len(seen) == 0
-    now_ist = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
+    now_dt = datetime.now(IST)
+    now_ist = now_dt.strftime("%d %b %Y, %I:%M %p IST")
+    short_date = now_dt.strftime("%d %b %Y")
 
     new_food_tech: List[Dict[str, str]] = []
     new_general: List[Dict[str, str]] = []
@@ -245,8 +268,8 @@ def run() -> None:
 
     for portal in PORTALS:
         try:
-            html = fetch_html(portal["url"])
-            postings = extract_postings(portal, html)
+            page_html = fetch_html(portal["url"])
+            postings = extract_postings(portal, page_html)
             ok_count += 1
             for item in postings:
                 if item["id"] not in seen:
@@ -266,26 +289,45 @@ def run() -> None:
 
     save_seen(seen)
 
-    lines = [f"Govt & PSU Job Monitor ({now_ist})"]
-    lines.append(f"Checked: {ok_count}/{len(PORTALS)} portals")
+    lines = [f"Govt & PSU Job Monitor ({now_ist})", f"Checked: {ok_count}/{len(PORTALS)} portals"]
+    total_new = len(new_food_tech) + len(new_general)
 
     if first_run:
+        subject = f"[Govt Job Monitor] Baseline Initialized ({len(seen)} links tracked)"
         lines.append(
             f"\nBaseline initialized with {len(seen)} existing links. "
-            "Starting tomorrow, you will receive alerts for every new posting."
+            "Starting tomorrow at 8:00 AM IST, you will receive alerts for every new posting."
         )
-    elif not new_food_tech and not new_general:
+    elif total_new == 0:
+        subject = f"[Govt Job Monitor] 0 New Postings Today ({short_date})"
         lines.append("\nNo new postings today. Monitor is active and healthy.")
     else:
+        subject = f"[Govt Job Monitor] {total_new} New Postings Found ({short_date})"
         if new_food_tech:
             lines.append(f"\n[FOOD TECH / ALLIED] ({len(new_food_tech)} new)")
-            for item in new_food_tech[:25]:
+            for item in new_food_tech[:40]:
                 lines.append(f"- {item['portal']}: {item['title']}\n  {item['url']}")
-
         if new_general:
             lines.append(f"\n[GENERAL GOVT / DEGREE / TRAINEE] ({len(new_general)} new)")
-            for item in new_general[:25]:
+            for item in new_general[:40]:
                 lines.append(f"- {item['portal']}: {item['title']}\n  {item['url']}")
+
+    if failed_portals:
+        lines.append("\n[PORTAL WARNINGS]")
+        for name, err in failed_portals:
+            lines.append(f"- {name}: {err[:150]}")
+
+    text_body = "\n".join(lines)
+    html_body = build_html_body(
+        now_ist, ok_count, len(PORTALS), first_run, len(seen), new_food_tech, new_general, failed_portals
+    )
+
+    print(text_body)
+    send_gmail(gmail_address, gmail_app_password, recipient_email, subject, text_body, html_body)
+
+
+if __name__ == "__main__":
+    run()               lines.append(f"- {item['portal']}: {item['title']}\n  {item['url']}")
 
     if failed_portals:
         lines.append("\n[PORTAL WARNINGS]")
