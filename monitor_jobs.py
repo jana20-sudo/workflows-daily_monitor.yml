@@ -179,7 +179,6 @@ def save_seen(seen: Dict[str, dict]) -> None:
 
 
 def send_telegram_message(token: str, chat_id: str, text: str) -> None:
-def send_telegram_message(token: str, chat_id: str, text: str) -> None:
     """Send a Telegram message with retries, splitting cleanly if over 4000 chars."""
     api_url = f"https://api.telegram.org/bot{token}/sendMessage"
     chunks: List[str] = []
