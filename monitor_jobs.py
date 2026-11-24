@@ -179,7 +179,8 @@ def save_seen(seen: Dict[str, dict]) -> None:
 
 
 def send_telegram_message(token: str, chat_id: str, text: str) -> None:
-    """Send a Telegram message, splitting cleanly if it exceeds 4000 characters."""
+def send_telegram_message(token: str, chat_id: str, text: str) -> None:
+    """Send a Telegram message with retries, splitting cleanly if over 4000 chars."""
     api_url = f"https://api.telegram.org/bot{token}/sendMessage"
     chunks: List[str] = []
     while len(text) > 4000:
@@ -191,16 +192,23 @@ def send_telegram_message(token: str, chat_id: str, text: str) -> None:
     chunks.append(text)
 
     for chunk in chunks:
-        resp = requests.post(
-            api_url,
-            json={
-                "chat_id": chat_id,
-                "text": chunk,
-                "disable_web_page_preview": True,
-            },
-            timeout=20,
-        )
-        resp.raise_for_status()
+        for attempt in range(1, 4):
+            try:
+                resp = requests.post(
+                    api_url,
+                    json={
+                        "chat_id": chat_id,
+                        "text": chunk,
+                        "disable_web_page_preview": True,
+                    },
+                    timeout=45,
+                )
+                resp.raise_for_status()
+                break
+            except Exception:
+                if attempt == 3:
+                    raise
+                time.sleep(3 * attempt)
 
 
 def run() -> None:
