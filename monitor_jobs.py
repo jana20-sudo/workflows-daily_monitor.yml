@@ -428,6 +428,145 @@ def run() -> None:
 
 
 if __name__ == "__main__":
+    run()family: Arial, sans-serif; color: #222; line-height: 1.5;'>",
+        "<h2 style='margin-bottom: 4px;'>Global Food Tech &amp; Govt Job Monitor</h2>",
+        f"<p style='color: #555; margin-top: 0;'>{html_lib.escape(now_ist)} &middot; Checked {ok_count}/{total_portals} portals</p>",
+    ]
+
+    if first_run:
+        parts.append(
+            f"<p><strong>Baseline initialized</strong> with {total_seen} existing links. "
+            "Starting tomorrow at 8:00 AM IST, you will receive an email whenever new postings appear.</p>"
+        )
+    elif not new_intl and not new_food_tech and not new_general:
+        parts.append("<p>No new postings today. Your monitor is active and healthy.</p>")
+    else:
+        for heading, color, items in [
+            ("International Food Safety &amp; Freshers", "#6a1b9a", new_intl),
+            ("India Food Tech &amp; Allied", "#0b5394", new_food_tech),
+            ("General Govt / RRB / Degree / Trainee", "#38761d", new_general),
+        ]:
+            if items:
+                parts.append(f"<h3 style='color: {color};'>{heading} ({len(items)} new)</h3><ul>")
+                for item in items[:35]:
+                    portal = html_lib.escape(item["portal"])
+                    title = html_lib.escape(item["title"])
+                    url = html_lib.escape(item["url"], quote=True)
+                    parts.append(f"<li><strong>{portal}:</strong> <a href='{url}'>{title}</a></li>")
+                parts.append("</ul>")
+
+    if failed_portals:
+        parts.append("<h3 style='color: #b45f06;'>Portal Warnings</h3><ul>")
+        for name, err in failed_portals:
+            parts.append(f"<li><strong>{html_lib.escape(name)}:</strong> {html_lib.escape(err[:150])}</li>")
+        parts.append("</ul>")
+
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def send_gmail(sender: str, app_password: str, recipient: str, subject: str, text_body: str, html_body: str) -> None:
+    """Send multipart plain-text + HTML email via Gmail SMTP_SSL."""
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = recipient
+    msg["Subject"] = subject
+    msg.set_content(text_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    clean_password = app_password.replace(" ", "").strip()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+        server.login(sender, clean_password)
+        server.send_message(msg)
+    print(f"Email sent successfully to {recipient}.")
+
+
+def run() -> None:
+    gmail_address = os.environ.get("GMAIL_ADDRESS", "").strip()
+    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    recipient_email = os.environ.get("RECIPIENT_EMAIL", "").strip() or gmail_address
+
+    if not gmail_address or not gmail_app_password:
+        raise EnvironmentError("Missing GMAIL_ADDRESS or GMAIL_APP_PASSWORD environment variables.")
+
+    seen = load_seen()
+    first_run = len(seen) == 0
+    now_dt = datetime.now(IST)
+    now_ist = now_dt.strftime("%d %b %Y, %I:%M %p IST")
+    short_date = now_dt.strftime("%d %b %Y")
+
+    new_intl: List[Dict[str, str]] = []
+    new_food_tech: List[Dict[str, str]] = []
+    new_general: List[Dict[str, str]] = []
+    failed_portals: List[Tuple[str, str]] = []
+    ok_count = 0
+
+    for portal in PORTALS:
+        try:
+            page_html = fetch_html(str(portal["url"]))
+            postings = extract_postings(portal, page_html)
+            ok_count += 1
+            for item in postings:
+                if item["id"] not in seen:
+                    seen[item["id"]] = {
+                        "portal": item["portal"],
+                        "category": item["category"],
+                        "bucket": item["bucket"],
+                        "title": item["title"],
+                        "url": item["url"],
+                        "first_seen": now_ist,
+                    }
+                    if not first_run:
+                        if item["bucket"] == "INTERNATIONAL":
+                            new_intl.append(item)
+                        elif item["bucket"] == "FOOD_TECH":
+                            new_food_tech.append(item)
+                        else:
+                            new_general.append(item)
+        except Exception as exc:
+            failed_portals.append((str(portal["name"]), str(exc)))
+
+    save_seen(seen)
+
+    lines = [f"Global Food Tech & Govt Job Monitor ({now_ist})", f"Checked: {ok_count}/{len(PORTALS)} portals"]
+    total_new = len(new_intl) + len(new_food_tech) + len(new_general)
+
+    if first_run:
+        subject = f"[Job Monitor] Baseline Initialized ({len(seen)} links tracked)"
+        lines.append(
+            f"\nBaseline initialized with {len(seen)} existing links across Indian & International portals."
+        )
+    elif total_new == 0:
+        subject = f"[Job Monitor] 0 New Postings Today ({short_date})"
+        lines.append("\nNo new postings today. Monitor is active and healthy.")
+    else:
+        noun = "Posting" if total_new == 1 else "Postings"
+        subject = f"[Job Monitor] {total_new} New {noun} Found ({short_date})"
+        for label, items in [
+            ("INTERNATIONAL FOOD SAFETY / FRESHERS", new_intl),
+            ("INDIA FOOD TECH / ALLIED", new_food_tech),
+            ("GENERAL GOVT / RRB / TRAINEE", new_general),
+        ]:
+            if items:
+                lines.append(f"\n[{label}] ({len(items)} new)")
+                for item in items[:35]:
+                    lines.append(f"- {item['portal']}: {item['title']}\n  {item['url']}")
+
+    if failed_portals:
+        lines.append("\n[PORTAL WARNINGS]")
+        for name, err in failed_portals:
+            lines.append(f"- {name}: {err[:150]}")
+
+    text_body = "\n".join(lines)
+    html_body = build_html_body(
+        now_ist, ok_count, len(PORTALS), first_run, len(seen), new_intl, new_food_tech, new_general, failed_portals
+    )
+
+    print(text_body)
+    send_gmail(gmail_address, gmail_app_password, recipient_email, subject, text_body, html_body)
+
+
+if __name__ == "__main__":
     run()"""
     msg = EmailMessage()
     msg["From"] = sender
