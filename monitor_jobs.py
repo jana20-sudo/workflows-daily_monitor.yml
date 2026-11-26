@@ -4,7 +4,7 @@ import json
 import os
 import smtplib
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -14,7 +14,6 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 
-# Suppress warnings if a legacy .gov.in SSL certificate requires verify=False fallback
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -29,116 +28,26 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Verified Indian Govt, Food Tech, PSU, and International Food Safety portals
 PORTALS = [
-    # --- Indian Food Tech & Statutory Boards ---
-    {
-        "name": "FSSAI",
-        "url": "https://www.fssai.gov.in/jobs-at-fssai",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": True,
-    },
-    {
-        "name": "Central Warehousing Corp (CWC)",
-        "url": "https://cwceportal.com/careers",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": True,
-    },
-    {
-        "name": "Food Corporation of India (FCI)",
-        "url": "https://fci.gov.in/",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": False,
-    },
-    {
-        "name": "Bureau of Indian Standards (BIS)",
-        "url": "https://www.bis.gov.in/",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": False,
-    },
-    {
-        "name": "CSIR-CFTRI (Regular)",
-        "url": "https://cftri.res.in/recruitments/regular-positions",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": True,
-    },
-    {
-        "name": "CSIR-CFTRI (Project Staff)",
-        "url": "https://cftri.res.in/recruitments/project-positions",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": True,
-    },
-    {
-        "name": "Tea Board of India",
-        "url": "https://www.teaboard.gov.in/",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": False,
-    },
-    {
-        "name": "Coffee Board of India",
-        "url": "https://coffeeboard.gov.in/News.aspx",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": False,
-    },
-    {
-        "name": "Spices Board India",
-        "url": "https://www.indianspices.com/",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": False,
-    },
-    {
-        "name": "APEDA",
-        "url": "https://apeda.gov.in/",
-        "category": "India Food Tech",
-        "dedicated_jobs_page": False,
-    },
-    # --- General Indian Govt & Railways ---
-    {
-        "name": "SSC (Notice Board)",
-        "url": "https://ssc.gov.in/home/notice-board",
-        "category": "Govt & RRB",
-        "dedicated_jobs_page": True,
-    },
-    {
-        "name": "RRB Chennai",
-        "url": "https://www.rrbchennai.gov.in/",
-        "category": "Govt & RRB",
-        "dedicated_jobs_page": True,
-    },
-    # --- International Food Safety & UN Food Agencies ---
-    {
-        "name": "FAO (UN Food & Agriculture)",
-        "url": "https://www.fao.org/employment/en",
-        "category": "International",
-        "dedicated_jobs_page": True,
-    },
-    {
-        "name": "FAO Internships (Freshers)",
-        "url": "https://www.fao.org/employment/young-talent-programme/internship-programme/en",
-        "category": "International",
-        "dedicated_jobs_page": True,
-    },
-    {
-        "name": "EFSA (European Food Safety)",
-        "url": "https://careers.efsa.europa.eu/",
-        "category": "International",
-        "dedicated_jobs_page": True,
-    },
-    {
-        "name": "EFSA Young Professionals",
-        "url": "https://careers.efsa.europa.eu/youngprofessionals",
-        "category": "International",
-        "dedicated_jobs_page": True,
-    },
-    {
-        "name": "WFP (UN World Food Programme)",
-        "url": "https://www.wfp.org/careers",
-        "category": "International",
-        "dedicated_jobs_page": True,
-    },
+    {"name": "FSSAI", "url": "https://www.fssai.gov.in/jobs-at-fssai", "category": "India Food Tech", "dedicated": True},
+    {"name": "Central Warehousing Corp (CWC)", "url": "https://cwceportal.com/careers", "category": "India Food Tech", "dedicated": True},
+    {"name": "Food Corporation of India (FCI)", "url": "https://fci.gov.in/", "category": "India Food Tech", "dedicated": False},
+    {"name": "Bureau of Indian Standards (BIS)", "url": "https://www.bis.gov.in/", "category": "India Food Tech", "dedicated": False},
+    {"name": "CSIR-CFTRI (Regular)", "url": "https://cftri.res.in/recruitments/regular-positions", "category": "India Food Tech", "dedicated": True},
+    {"name": "CSIR-CFTRI (Project Staff)", "url": "https://cftri.res.in/recruitments/project-positions", "category": "India Food Tech", "dedicated": True},
+    {"name": "Tea Board of India", "url": "https://www.teaboard.gov.in/", "category": "India Food Tech", "dedicated": False},
+    {"name": "Coffee Board of India", "url": "https://coffeeboard.gov.in/News.aspx", "category": "India Food Tech", "dedicated": False},
+    {"name": "Spices Board India", "url": "https://www.indianspices.com/", "category": "India Food Tech", "dedicated": False},
+    {"name": "APEDA", "url": "https://apeda.gov.in/", "category": "India Food Tech", "dedicated": False},
+    {"name": "SSC (Notice Board)", "url": "https://ssc.gov.in/home/notice-board", "category": "Govt & RRB", "dedicated": True},
+    {"name": "RRB Chennai", "url": "https://www.rrbchennai.gov.in/", "category": "Govt & RRB", "dedicated": True},
+    {"name": "FAO (UN Food & Agriculture)", "url": "https://www.fao.org/employment/en", "category": "International", "dedicated": True},
+    {"name": "FAO Internships (Freshers)", "url": "https://www.fao.org/employment/young-talent-programme/internship-programme/en", "category": "International", "dedicated": True},
+    {"name": "EFSA (European Food Safety)", "url": "https://careers.efsa.europa.eu/", "category": "International", "dedicated": True},
+    {"name": "EFSA Young Professionals", "url": "https://careers.efsa.europa.eu/youngprofessionals", "category": "International", "dedicated": True},
+    {"name": "WFP (UN World Food Programme)", "url": "https://www.wfp.org/careers", "category": "International", "dedicated": True},
 ]
 
-# Immediately ignore auctions, tenders, market prices, and non-job administrative notices
 NOISE_KEYWORDS = [
     "auction", "e-auction", "auctioneer", "qty arrived", "no.of lots",
     "small cardamom", "large cardamom", "daily price", "market price",
@@ -148,7 +57,6 @@ NOISE_KEYWORDS = [
     "holiday list", "press release", "parliament", "citizen charter",
 ]
 
-# Bucket A: Food Technology, Food Safety & International Agencies
 FOOD_TECH_KEYWORDS = [
     "food", "fssai", "efsa", "fao", "wfp", "codex", "haccp", "iso",
     "quality", "qa", "qc", "lab", "laboratory", "analyst", "technical",
@@ -157,7 +65,6 @@ FOOD_TECH_KEYWORDS = [
     "research", "safety",
 ]
 
-# Bucket B: Explicit job, recruitment, exam, internship, and trainee signals
 JOB_SIGNAL_KEYWORDS = [
     "recruit", "vacancy", "vacancies", "career", "careers", "job", "jobs",
     "employment", "advertisement", "advt", "post of", "posts of", "position",
@@ -171,7 +78,6 @@ JOB_SIGNAL_KEYWORDS = [
 
 
 def fetch_html(url: str, retries: int = 2) -> str:
-    """Fetch page HTML with retries and SSL fallback for legacy .gov.in certs."""
     last_err = None
     for attempt in range(1, retries + 1):
         try:
@@ -192,18 +98,14 @@ def fetch_html(url: str, retries: int = 2) -> str:
 
 
 def classify_title(portal: Dict[str, object], title: str) -> str:
-    """Tag a posting into INTERNATIONAL, FOOD_TECH, GENERAL, or Skip (blocking noise)."""
     lower = title.lower()
-
-    # Drop auctions, tenders, market prices, and non-job notices immediately
     if any(noise in lower for noise in NOISE_KEYWORDS):
         return ""
 
     is_food = any(kw in lower for kw in FOOD_TECH_KEYWORDS)
     is_job = any(kw in lower for kw in JOB_SIGNAL_KEYWORDS)
 
-    # General board homepages (Spices/Tea/Coffee/FCI/BIS/APEDA) MUST contain a job signal
-    if not portal.get("dedicated_jobs_page", False) and not is_job:
+    if not portal.get("dedicated", False) and not is_job:
         return ""
 
     if portal["category"] == "International" and (is_food or is_job):
@@ -212,7 +114,7 @@ def classify_title(portal: Dict[str, object], title: str) -> str:
         return "FOOD_TECH"
     if portal["category"] == "India Food Tech" and is_job:
         return "FOOD_TECH"
-    if portal.get("dedicated_jobs_page", False) and is_food:
+    if portal.get("dedicated", False) and is_food:
         return "FOOD_TECH"
     if is_job:
         return "GENERAL"
@@ -220,7 +122,6 @@ def classify_title(portal: Dict[str, object], title: str) -> str:
 
 
 def extract_postings(portal: Dict[str, object], page_html: str) -> List[Dict[str, str]]:
-    """Extract relevant job/notice links from a portal's HTML."""
     soup = BeautifulSoup(page_html, "html.parser")
     results: List[Dict[str, str]] = []
     seen_urls = set()
@@ -239,11 +140,10 @@ def extract_postings(portal: Dict[str, object], page_html: str) -> List[Dict[str
             continue
 
         bucket = classify_title(portal, raw_text)
-        # Allow direct PDF notices on dedicated career portals (unless blocked by NOISE_KEYWORDS)
         if (
             not bucket
             and full_url.lower().endswith(".pdf")
-            and portal.get("dedicated_jobs_page", False)
+            and portal.get("dedicated", False)
             and not any(noise in raw_text.lower() for noise in NOISE_KEYWORDS)
         ):
             bucket = "FOOD_TECH" if portal["category"] == "India Food Tech" else "GENERAL"
@@ -251,16 +151,14 @@ def extract_postings(portal: Dict[str, object], page_html: str) -> List[Dict[str
         if bucket:
             seen_urls.add(full_url)
             item_id = hashlib.sha256(f"{portal['name']}|{full_url}|{raw_text}".encode()).hexdigest()[:16]
-            results.append(
-                {
-                    "id": item_id,
-                    "portal": str(portal["name"]),
-                    "category": str(portal["category"]),
-                    "bucket": bucket,
-                    "title": raw_text[:180],
-                    "url": full_url,
-                }
-            )
+            results.append({
+                "id": item_id,
+                "portal": str(portal["name"]),
+                "category": str(portal["category"]),
+                "bucket": bucket,
+                "title": raw_text[:180],
+                "url": full_url,
+            })
     return results
 
 
@@ -290,6 +188,140 @@ def build_html_body(
 ) -> str:
     parts = [
         "<div style='font-family: Arial, sans-serif; color: #222; line-height: 1.5;'>",
+        "<h2 style='margin-bottom: 4px;'>Global Food Tech &amp; Govt Job Monitor</h2>",
+        f"<p style='color: #555; margin-top: 0;'>{html_lib.escape(now_ist)} &middot; Checked {ok_count}/{total_portals} portals</p>",
+    ]
+
+    if first_run:
+        parts.append(f"<p><strong>Baseline initialized</strong> with {total_seen} existing links.</p>")
+    elif not new_intl and not new_food_tech and not new_general:
+        parts.append("<p>No new postings today. Your monitor is active and healthy.</p>")
+    else:
+        sections = [
+            ("International Food Safety &amp; Freshers", "#6a1b9a", new_intl),
+            ("India Food Tech &amp; Allied", "#0b5394", new_food_tech),
+            ("General Govt / RRB / Degree / Trainee", "#38761d", new_general),
+        ]
+        for heading, color, items in sections:
+            if items:
+                parts.append(f"<h3 style='color: {color};'>{heading} ({len(items)} new)</h3><ul>")
+                for item in items[:35]:
+                    portal = html_lib.escape(item["portal"])
+                    title = html_lib.escape(item["title"])
+                    url = html_lib.escape(item["url"], quote=True)
+                    parts.append(f"<li><strong>{portal}:</strong> <a href='{url}'>{title}</a></li>")
+                parts.append("</ul>")
+
+    if failed_portals:
+        parts.append("<h3 style='color: #b45f06;'>Portal Warnings</h3><ul>")
+        for name, err in failed_portals:
+            parts.append(f"<li><strong>{html_lib.escape(name)}:</strong> {html_lib.escape(err[:150])}</li>")
+        parts.append("</ul>")
+
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def send_gmail(sender: str, app_password: str, recipient: str, subject: str, text_body: str, html_body: str) -> None:
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = recipient
+    msg["Subject"] = subject
+    msg.set_content(text_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    clean_password = app_password.replace(" ", "").strip()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+        server.login(sender, clean_password)
+        server.send_message(msg)
+    print(f"Email sent successfully to {recipient}.")
+
+
+def run() -> None:
+    gmail_address = os.environ.get("GMAIL_ADDRESS", "").strip()
+    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    recipient_email = os.environ.get("RECIPIENT_EMAIL", "").strip() or gmail_address
+
+    if not gmail_address or not gmail_app_password:
+        raise EnvironmentError("Missing GMAIL_ADDRESS or GMAIL_APP_PASSWORD environment variables.")
+
+    seen = load_seen()
+    first_run = len(seen) == 0
+    now_dt = datetime.now(IST)
+    now_ist = now_dt.strftime("%d %b %Y, %I:%M %p IST")
+    short_date = now_dt.strftime("%d %b %Y")
+
+    new_intl: List[Dict[str, str]] = []
+    new_food_tech: List[Dict[str, str]] = []
+    new_general: List[Dict[str, str]] = []
+    failed_portals: List[Tuple[str, str]] = []
+    ok_count = 0
+
+    for portal in PORTALS:
+        try:
+            page_html = fetch_html(str(portal["url"]))
+            postings = extract_postings(portal, page_html)
+            ok_count += 1
+            for item in postings:
+                if item["id"] not in seen:
+                    seen[item["id"]] = {
+                        "portal": item["portal"],
+                        "category": item["category"],
+                        "bucket": item["bucket"],
+                        "title": item["title"],
+                        "url": item["url"],
+                        "first_seen": now_ist,
+                    }
+                    if not first_run:
+                        if item["bucket"] == "INTERNATIONAL":
+                            new_intl.append(item)
+                        elif item["bucket"] == "FOOD_TECH":
+                            new_food_tech.append(item)
+                        else:
+                            new_general.append(item)
+        except Exception as exc:
+            failed_portals.append((str(portal["name"]), str(exc)))
+
+    save_seen(seen)
+
+    lines = [f"Global Food Tech & Govt Job Monitor ({now_ist})", f"Checked: {ok_count}/{len(PORTALS)} portals"]
+    total_new = len(new_intl) + len(new_food_tech) + len(new_general)
+
+    if first_run:
+        subject = f"[Job Monitor] Baseline Initialized ({len(seen)} links tracked)"
+        lines.append(f"\nBaseline initialized with {len(seen)} existing links.")
+    elif total_new == 0:
+        subject = f"[Job Monitor] 0 New Postings Today ({short_date})"
+        lines.append("\nNo new postings today. Monitor is active and healthy.")
+    else:
+        noun = "Posting" if total_new == 1 else "Postings"
+        subject = f"[Job Monitor] {total_new} New {noun} Found ({short_date})"
+        for label, items in [
+            ("INTERNATIONAL FOOD SAFETY / FRESHERS", new_intl),
+            ("INDIA FOOD TECH / ALLIED", new_food_tech),
+            ("GENERAL GOVT / RRB / TRAINEE", new_general),
+        ]:
+            if items:
+                lines.append(f"\n[{label}] ({len(items)} new)")
+                for item in items[:35]:
+                    lines.append(f"- {item['portal']}: {item['title']}\n  {item['url']}")
+
+    if failed_portals:
+        lines.append("\n[PORTAL WARNINGS]")
+        for name, err in failed_portals:
+            lines.append(f"- {name}: {err[:150]}")
+
+    text_body = "\n".join(lines)
+    html_body = build_html_body(
+        now_ist, ok_count, len(PORTALS), first_run, len(seen), new_intl, new_food_tech, new_general, failed_portals
+    )
+
+    print(text_body)
+    send_gmail(gmail_address, gmail_app_password, recipient_email, subject, text_body, html_body)
+
+
+if __name__ == "__main__":
+    run()family: Arial, sans-serif; color: #222; line-height: 1.5;'>",
         "<h2 style='margin-bottom: 4px;'>Global Food Tech &amp; Govt Job Monitor</h2>",
         f"<p style='color: #555; margin-top: 0;'>{html_lib.escape(now_ist)} &middot; Checked {ok_count}/{total_portals} portals</p>",
     ]
