@@ -456,3 +456,6 @@ def prune(seen: Dict[str, dict], now: datetime) -> int:
 # --------------------------------------------------------------------------
 # Optional AI relevance layer (Gemini via Google AI Studio)
 # ---------------------------
+if __name__ == "__main__":
+    run()
+  
