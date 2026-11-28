@@ -455,4 +455,276 @@ def prune(seen: Dict[str, dict], now: datetime) -> int:
 
 # --------------------------------------------------------------------------
 # Optional AI relevance layer (Gemini via Google AI Studio)
+# --------------------------- r"\bvice\s+president\b", r"\bvp\b", r"\bprincipal\b",
+         r"\bhead\s+of\b", r"\bmanager\b", r"\bexperienced\b"), -3),
+]
+
+
+def score_title(title: str) -> int:
+    return sum(weight for rx, weight in SCORE_RULES if rx.search(title))
+
+
+def tag_eligibility(portal_name: str, title: str) -> str:
+    return "ELIGIBLE NOW" if ELIGIBLE_NOW_RX.search(f"{portal_name} {title}") else "AFTER DEGREE"
+
+
+def is_pdf_url(url: str) -> bool:
+    return url.lower().split("?")[0].endswith(".pdf")
+
+
+def evaluate(portal: Dict[str, object], title: str, url: str) -> Optional[int]:
+    if NOISE_RX.search(title):
+        return None
+    is_food = bool(FOOD_RX.search(title))
+    is_job = bool(JOB_RX.search(title))
+    dedicated = bool(portal.get("dedicated", False))
+    if not (is_job or (dedicated and (is_food or is_pdf_url(url)))):
+        return None
+    return score_title(title)
+
+
+# --------------------------------------------------------------------------
+# HTTP + Playwright rendering
+# --------------------------------------------------------------------------
+def make_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    retry = Retry(total=2, backoff_factor=1.5, status_forcelist=(429, 500, 502, 503, 504), allowed_methods=("GET",))
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+SESSION = make_session()
+INSECURE_PORTALS: set = set()
+
+
+def http_get(portal: Dict[str, object], url: Optional[str] = None) -> requests.Response:
+    timeout = int(portal.get("timeout", 20))
+    target = url or str(portal["url"])
+    try:
+        resp = SESSION.get(target, timeout=timeout)
+    except requests.exceptions.SSLError:
+        INSECURE_PORTALS.add(str(portal["name"]))
+        resp = SESSION.get(target, timeout=timeout, verify=False)
+    resp.raise_for_status()
+    return resp
+
+
+class Renderer:
+    """Lazy Playwright wrapper for JavaScript-rendered pages."""
+
+    def __init__(self) -> None:
+        self._pw = None
+        self._browser = None
+        self.disabled = False
+
+    def render(self, url: str, timeout_ms: int = 25000) -> str:
+        if self._browser is None:
+            try:
+                from playwright.sync_api import sync_playwright
+
+                self._pw = sync_playwright().start()
+                self._browser = self._pw.chromium.launch()
+            except Exception:
+                self.disabled = True
+                raise
+        context = self._browser.new_context(user_agent=HEADERS["User-Agent"], ignore_https_errors=True)
+        page = context.new_page()
+        try:
+            page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+            page.wait_for_timeout(1200)
+            return page.content()
+        finally:
+            context.close()
+
+    def close(self) -> None:
+        try:
+            if self._browser:
+                self._browser.close()
+            if self._pw:
+                self._pw.stop()
+        except Exception:
+            pass
+
+
+# --------------------------------------------------------------------------
+# Extraction
+# --------------------------------------------------------------------------
+def make_id(portal_name: str, url: str) -> str:
+    return hashlib.sha256(f"{portal_name}|{url.strip()}".encode()).hexdigest()[:16]
+
+
+def build_items(portal: Dict[str, object], rows: List[Tuple[str, str]]) -> List[Dict[str, object]]:
+    out: List[Dict[str, object]] = []
+    seen_urls = set()
+    for raw_title, url in rows:
+        title = " ".join(raw_title.split())
+        if len(title) < 8 or not url or url in seen_urls:
+            continue
+        score = evaluate(portal, title, url)
+        if score is None:
+            continue
+        seen_urls.add(url)
+        out.append({
+            "id": make_id(str(portal["name"]), url),
+            "portal": str(portal["name"]),
+            "category": str(portal["category"]),
+            "eligibility": tag_eligibility(str(portal["name"]), title),
+            "title": title[:180],
+            "url": url,
+            "score": score,
+            "deadline": find_deadline(title) or "",
+        })
+    return out
+
+
+def extract_postings(portal: Dict[str, object], page_html: str) -> List[Dict[str, object]]:
+    soup = BeautifulSoup(page_html, "html.parser")
+    rows: List[Tuple[str, str]] = []
+    for tag in soup.find_all("a", href=True):
+        href = tag["href"].strip()
+        if href.startswith(("javascript:", "mailto:", "tel:", "#")):
+            continue
+        rows.append((tag.get_text(" ", strip=True), urljoin(str(portal["url"]), href)))
+    return build_items(portal, rows)
+
+
+def parse_feed(portal: Dict[str, object], resp: requests.Response) -> List[Dict[str, object]]:
+    kind = portal["kind"]
+    rows: List[Tuple[str, str]] = []
+    if kind == "rss":
+        root = ET.fromstring(resp.content)
+        for node in root.iter():
+            if node.tag.split("}")[-1] not in ("item", "entry"):
+                continue
+            title = link = ""
+            for child in node:
+                tag = child.tag.split("}")[-1]
+                if tag == "title":
+                    title = (child.text or "").strip()
+                elif tag == "link":
+                    link = (child.get("href") or child.text or "").strip()
+            if title and link:
+                rows.append((title, urljoin(str(portal["url"]), link)))
+    elif kind == "greenhouse":
+        for job in resp.json().get("jobs", []):
+            loc = (job.get("location") or {}).get("name", "")
+            title = job.get("title", "")
+            rows.append((f"{title} ({loc})" if loc else title, job.get("absolute_url", "")))
+    elif kind == "lever":
+        for job in resp.json():
+            loc = (job.get("categories") or {}).get("location", "")
+            title = job.get("text", "")
+            rows.append((f"{title} ({loc})" if loc else title, job.get("hostedUrl", "")))
+    return build_items(portal, rows)
+
+
+def fetch_postings(portal: Dict[str, object], renderer: Renderer, notes: List[str]) -> List[Dict[str, object]]:
+    if portal.get("kind", "html") in ("rss", "greenhouse", "lever"):
+        return parse_feed(portal, http_get(portal))
+
+    page_html: Optional[str] = None
+    if portal.get("js") and not renderer.disabled:
+        try:
+            page_html = renderer.render(str(portal["url"]))
+        except ImportError:
+            renderer.disabled = True
+            notes.append("Playwright not installed: JS-heavy portals fall back to static HTML.")
+        except Exception as exc:
+            if renderer.disabled:
+                notes.append(f"Playwright unavailable ({type(exc).__name__}): JS portals use static HTML.")
+            else:
+                notes.append(f"{portal['name']}: browser render failed ({type(exc).__name__}); used static HTML.")
+    if page_html is None:
+        page_html = http_get(portal).text
+    return extract_postings(portal, page_html)
+
+
+# --------------------------------------------------------------------------
+# Deadlines (Titles + PDFs)
+# --------------------------------------------------------------------------
+CUE_RX = re.compile(
+    r"last\s+date|closing\s+date|closes?\s+on|deadline|apply\s+(?:by|before)|on\s+or\s+before|due\s+date|\btill\b|\buntil\b",
+    re.I,
+)
+DATE_RX = re.compile(r"(\d{1,2})(?:st|nd|rd|th)?[\s/.\-]+(\d{1,2}|[A-Za-z]{3,9})[\s/.\-,]+(\d{4})")
+US_DATE_RX = re.compile(r"([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})")
+
+
+def _to_date(day: str, month: str, year: str) -> Optional[date]:
+    try:
+        if month.isdigit():
+            return date(int(year), int(month), int(day))
+        return datetime.strptime(f"{int(day)} {month[:3].title()} {year}", "%d %b %Y").date()
+    except ValueError:
+        return None
+
+
+def find_deadline(text: str) -> Optional[str]:
+    for cue in CUE_RX.finditer(text):
+        window = text[cue.end(): cue.end() + 80]
+        match = DATE_RX.search(window)
+        if match:
+            parsed = _to_date(*match.groups())
+            if parsed:
+                return parsed.isoformat()
+        match = US_DATE_RX.search(window)
+        if match:
+            parsed = _to_date(match.group(2), match.group(1), match.group(3))
+            if parsed:
+                return parsed.isoformat()
+    return None
+
+
+def pdf_deadline(portal: Dict[str, object], url: str) -> Optional[str]:
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return None
+    try:
+        resp = http_get(portal, url)
+        if len(resp.content) > 5_000_000:
+            return None
+        reader = PdfReader(io.BytesIO(resp.content))
+        text = " ".join((page.extract_text() or "") for page in reader.pages[:3])
+        return find_deadline(" ".join(text.split()))
+    except Exception:
+        return None
+
+
+# --------------------------------------------------------------------------
+# State management
+# --------------------------------------------------------------------------
+def load_state() -> Dict[str, dict]:
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_state(seen: Dict[str, dict]) -> None:
+    STATE_FILE.write_text(json.dumps(seen, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _parse_iso(value: Optional[str], default: datetime) -> datetime:
+    try:
+        return datetime.fromisoformat(value) if value else default
+    except ValueError:
+        return default
+
+
+def prune(seen: Dict[str, dict], now: datetime) -> int:
+    cutoff = now - timedelta(days=PRUNE_DAYS)
+    stale = [k for k, v in seen.items() if k != "_meta" and _parse_iso(v.get("last_seen"), now) < cutoff]
+    for key in stale:
+        del seen[key]
+    return len(stale)
+
+
+# --------------------------------------------------------------------------
+# Optional AI relevance layer (Gemini via Google AI Studio)
 # ---------------------------
